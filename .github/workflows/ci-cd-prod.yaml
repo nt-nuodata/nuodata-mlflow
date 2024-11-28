@@ -1,7 +1,7 @@
 on:
   workflow_dispatch:
 
-name: Uploading Image to ECR
+name: Uploading Image to DEV
 
 jobs:
   upload_to_ecr:
