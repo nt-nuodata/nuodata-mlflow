@@ -17,6 +17,14 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v3
+      
+      - name: Update host value in keycloak_auth.ini
+        run: |
+          NEW_HOST="https://identity.nt.nuodata.io/"
+          CONFIG_FILE="/home/runner/work/nuodata-mlflow/nuodata-mlflow/server/keycloak_auth/keycloak_auth.ini"
+          sed -i "s|^host = .*|host = ${NEW_HOST}|" $CONFIG_FILE
+          cat $CONFIG_FILE
+
         
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v1
