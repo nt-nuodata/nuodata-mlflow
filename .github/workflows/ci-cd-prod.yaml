@@ -1,7 +1,7 @@
 on:
   workflow_dispatch:
 
-name: Uploading Image to DEV
+name: Uploading Image to prod
 
 jobs:
   upload_to_ecr:

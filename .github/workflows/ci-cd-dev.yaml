@@ -7,7 +7,7 @@ on:
       - "terraform/**"
       - "terragrunt/**"
 
-name: Uploading Image to PROD
+name: Uploading Image to dev
 
 jobs:
   upload_to_ecr:
