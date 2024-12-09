@@ -24,7 +24,14 @@ jobs:
           CONFIG_FILE="/home/runner/work/nuodata-mlflow/nuodata-mlflow/mlflow/server/keycloak_auth/keycloak_auth.ini"
           sed -i "s|^host = .*|host = ${NEW_HOST}|" $CONFIG_FILE
           cat $CONFIG_FILE
-
+      
+      - name: Update Keycloak URL and Client ID
+        run: |
+          KEYCLOAK_URL="https://identity.nt.nuodata.io/"
+          CLIENT_ID="nuodata-website"
+          CONFIG_FILE="/home/runner/work/nuodata-mlflow/nuodata-mlflow//mlflow/server/js/src/keycloak-config.ts"
+          sed -i "s|url: '.*'|url: '${KEYCLOAK_URL}'|" $CONFIG_FILE
+          sed -i "s|clientId: '.*'|clientId: '${CLIENT_ID}'|" $CONFIG_FILE
         
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v1
