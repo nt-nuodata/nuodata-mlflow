@@ -36,7 +36,7 @@ jobs:
       
       - name: Update .env File
         run: |
-          CONFIG_FILE="/home/runner/work/nuodata-mlflow/nuodata-mlflow/mlflow/server/js/src/.env"
+          CONFIG_FILE="/home/runner/work/nuodata-mlflow/nuodata-mlflow/mlflow/server/js/.env"
           PROD_REACT_APP_WEB_BASE_URL= "https://aiml.nt.nuodata.io/"
           sed -i "s|REACT_APP_WEB_BASE_URL=.*|REACT_APP_WEB_BASE_URL=${PROD_REACT_APP_WEB_BASE_URL}|" $CONFIG_FILE
           cat $CONFIG_FILE
