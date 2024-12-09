@@ -33,7 +33,14 @@ jobs:
           sed -i "s|url: '.*'|url: '${KEYCLOAK_URL}'|" $CONFIG_FILE
           sed -i "s|clientId: '.*'|clientId: '${CLIENT_ID}'|" $CONFIG_FILE
           cat $CONFIG_FILE
-        
+      
+      - name: Update .env File
+        run: |
+          CONFIG_FILE="/home/runner/work/nuodata-mlflow/nuodata-mlflow/mlflow/server/js/src/.env"
+          REACT_APP_WEB_BASE_URL: 'https://aiml.nt.nuodata.io/'
+          sed -i "s|REACT_APP_WEB_BASE_URL=.*|REACT_APP_WEB_BASE_URL=${REACT_APP_WEB_BASE_URL}|" $CONFIG_FILE
+          cat $CONFIG_FILE
+
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v1
         with:
