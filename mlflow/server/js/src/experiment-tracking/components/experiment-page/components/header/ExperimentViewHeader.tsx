@@ -181,29 +181,32 @@ export const ExperimentViewHeader = React.memo(
           },
         }}
       >
-        {getShareButton()}
-        <Button
-          componentId="create-experiment-button"
-          size="middle"
-          onClick={() => {
-            // window.parent.postMessage({ type: 'CREATE_EXPERIMENT', payload: 'create_new_experiment' }, '*');
-            window.parent.postMessage({ type: 'BACK', payload: 'back_to_experiment' }, '*');
-          }}
-          css={{
-            marginLeft: theme.spacing.sm,
-            background: `#e74860 !important`,
-            border: 'none',
-            ':hover': {
+        <div css={{ display: 'flex', gap: theme.spacing.sm }}>
+          {/* Wrap the buttons in a flex element */}
+          {getShareButton()}
+          <Button
+            componentId="create-experiment-button"
+            size="middle"
+            onClick={() => {
+              // window.parent.postMessage({ type: 'CREATE_EXPERIMENT', payload: 'create_new_experiment' }, '*');
+              window.parent.postMessage({ type: 'BACK', payload: 'back_to_experiment' }, '*');
+            }}
+            css={{
+              marginLeft: theme.spacing.sm,
               background: `#e74860 !important`,
               border: 'none',
-            },
-            float: 'right',
-          }}
-        >
-          <Typography.Text css={{ color: '#FFF !important' }} size="md">
-            Go Back
-          </Typography.Text>
-        </Button>
+              ':hover': {
+                background: `#e74860 !important`,
+                border: 'none',
+              },
+              float: 'right',
+            }}
+          >
+            <Typography.Text css={{ color: '#FFF !important' }} size="md">
+              Go Back
+            </Typography.Text>
+          </Button>
+        </div>
       </PageHeader>
     );
   },
