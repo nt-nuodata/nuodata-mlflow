@@ -62,9 +62,10 @@ export const MlflowHeader = ({
             fontSize: 12,
             marginLeft: 5,
             marginBottom: 13,
+            display:"none"
           }}
         >
-          {/* {Version} */}
+          {Version}
         </span>
       </div>
       <div
