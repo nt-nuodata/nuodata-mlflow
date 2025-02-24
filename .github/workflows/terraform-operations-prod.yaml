@@ -15,7 +15,7 @@ on:
 env:
   tf_version: "1.3.3"
   tg_version: "0.40.1"
-  target_operation: "${{ github.event.inputs.operation || 'apply' }}"
+  target_operation: "${{ github.event.inputs.operation || 'plan' }}"
   target_environment: prod
   working_dir: "/home/runner/work/nuodata-mlflow/nuodata-mlflow/terragrunt"
 
