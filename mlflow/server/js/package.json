@@ -31,6 +31,7 @@
     "@emotion/cache": "^11.11.0",
     "@emotion/react": "^11.11.3",
     "@tanstack/react-table": "^8.8.2",
+    "@tanstack/react-virtual": "^3.13.0",
     "@types/react-virtualized": "^9.21.9",
     "antd": "4.16.8",
     "babel-jest": "^27.5.1",

@@ -745,11 +745,11 @@ message Dataset {
   // within datasets of the same name.
   optional string digest = 2 [(validate_required) = true];
 
-  // Source information for the dataset. Note that the source may not exactly reproduce the
-  // dataset if it was transformed / modified before use with MLflow.
+  // The type of the dataset source, e.g. ‘databricks-uc-table’, ‘DBFS’, ‘S3’, ...
   optional string source_type = 3 [(validate_required) = true];
 
-  // The type of the dataset source, e.g. ‘databricks-uc-table’, ‘DBFS’, ‘S3’, ...
+  // Source information for the dataset. Note that the source may not exactly reproduce the
+  // dataset if it was transformed / modified before use with MLflow.
   optional string source = 4 [(validate_required) = true];
 
   // The schema of the dataset. E.g., MLflow ColSpec JSON for a dataframe, MLflow TensorSpec JSON
@@ -1202,7 +1202,6 @@ message MetricWithRunId {
 
 message GetMetricHistoryBulkInterval {
   option (scalapb.message).extends = "com.databricks.rpc.RPC[$this.Response]";
-  option (scalapb.message).extends = "com.databricks.mlflow.api.MlflowTrackingMessage";
 
   // ID(s) of the run(s) from which to fetch metric values. Must be provided.
   repeated string run_ids = 1;
@@ -1261,7 +1260,6 @@ message LogModel {
 
 message LogInputs {
   option (scalapb.message).extends = "com.databricks.rpc.RPC[$this.Response]";
-  option (scalapb.message).extends = "com.databricks.mlflow.api.MlflowTrackingMessage";
   // ID of the run to log under
   optional string run_id = 1 [(validate_required) = true];
 
@@ -1339,7 +1337,6 @@ enum TraceStatus {
 
 message StartTrace {
   option (scalapb.message).extends = "com.databricks.rpc.RPC[$this.Response]";
-  option (scalapb.message).extends = "com.databricks.mlflow.api.MlflowTrackingMessage";
 
   // ID of the associated experiment.
   optional string experiment_id = 1;
@@ -1361,7 +1358,6 @@ message StartTrace {
 
 message EndTrace {
   option (scalapb.message).extends = "com.databricks.rpc.RPC[$this.Response]";
-  option (scalapb.message).extends = "com.databricks.mlflow.api.MlflowTrackingMessage";
 
   // ID of the trace to end.
   optional string request_id = 1;
@@ -1386,7 +1382,6 @@ message EndTrace {
 
 message GetTraceInfo {
   option (scalapb.message).extends = "com.databricks.rpc.RPC[$this.Response]";
-  option (scalapb.message).extends = "com.databricks.mlflow.api.MlflowTrackingMessage";
 
   // ID of the trace to fetch. Must be provided.
   optional string request_id = 1;
@@ -1399,7 +1394,6 @@ message GetTraceInfo {
 
 message SearchTraces {
   option (scalapb.message).extends = "com.databricks.rpc.RPC[$this.Response]";
-  option (scalapb.message).extends = "com.databricks.mlflow.api.MlflowTrackingMessage";
 
   // List of experiment IDs to search over.
   repeated string experiment_ids = 1;
@@ -1427,7 +1421,6 @@ message SearchTraces {
 
 message DeleteTraces {
   option (scalapb.message).extends = "com.databricks.rpc.RPC[$this.Response]";
-  option (scalapb.message).extends = "com.databricks.mlflow.api.MlflowTrackingMessage";
 
   // ID of the associated experiment.
   optional string experiment_id = 1 [(validate_required) = true];
@@ -1450,7 +1443,6 @@ message DeleteTraces {
 
 message SetTraceTag {
   option (scalapb.message).extends = "com.databricks.rpc.RPC[$this.Response]";
-  option (scalapb.message).extends = "com.databricks.mlflow.api.MlflowTrackingMessage";
 
   // ID of the trace on which to set a tag.
   optional string request_id = 1;
@@ -1469,7 +1461,6 @@ message SetTraceTag {
 
 message DeleteTraceTag {
   option (scalapb.message).extends = "com.databricks.rpc.RPC[$this.Response]";
-  option (scalapb.message).extends = "com.databricks.mlflow.api.MlflowTrackingMessage";
 
   // ID of the trace from which to delete the tag.
   optional string request_id = 1;
@@ -1499,7 +1490,6 @@ message DatasetSummary {
 
 message SearchDatasets {
   option (scalapb.message).extends = "com.databricks.rpc.RPC[$this.Response]";
-  option (scalapb.message).extends = "com.databricks.mlflow.api.MlflowTrackingMessage";
 
   // List of experiment IDs to search over.
   repeated string experiment_ids = 1;

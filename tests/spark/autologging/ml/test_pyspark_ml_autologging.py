@@ -23,7 +23,14 @@ from pyspark.ml.evaluation import (
     MulticlassClassificationEvaluator,
     RegressionEvaluator,
 )
-from pyspark.ml.feature import HashingTF, IndexToString, StringIndexer, Tokenizer, VectorAssembler
+from pyspark.ml.feature import (
+    HashingTF,
+    IndexToString,
+    StandardScaler,
+    StringIndexer,
+    Tokenizer,
+    VectorAssembler,
+)
 from pyspark.ml.functions import array_to_vector
 from pyspark.ml.linalg import Vectors
 from pyspark.ml.regression import LinearRegression, LinearRegressionModel
@@ -218,9 +225,9 @@ def test_models_in_allowlist_exist(spark_session):
     non_existent_classes = list(
         filter(model_does_not_exist, mlflow.pyspark.ml._log_model_allowlist)
     )
-    assert (
-        len(non_existent_classes) == 0
-    ), f"{non_existent_classes} in log_model_allowlist don't exist"
+    assert len(non_existent_classes) == 0, (
+        f"{non_existent_classes} in log_model_allowlist don't exist"
+    )
 
 
 def test_autolog_does_not_terminate_active_run(dataset_binomial):
@@ -292,9 +299,10 @@ def test_fit_with_a_list_of_params(dataset_binomial):
     extra_params = {lr.maxIter: 3, lr.standardization: False}
     # Test calling fit with a list/tuple of paramMap
     for params in [[extra_params], (extra_params,)]:
-        with mock.patch("mlflow.log_params") as mock_log_params, mock.patch(
-            "mlflow.set_tags"
-        ) as mock_set_tags:
+        with (
+            mock.patch("mlflow.log_params") as mock_log_params,
+            mock.patch("mlflow.set_tags") as mock_set_tags,
+        ):
             with mlflow.start_run():
                 with mock.patch("mlflow.pyspark.ml._logger.warning") as mock_warning:
                     lr_model_iter = lr.fit(dataset_binomial, params=params)
@@ -350,14 +358,17 @@ def test_should_log_model(
         nested_pipeline_model = nested_pipeline.fit(dataset_text)
     assert _should_log_model(nested_pipeline_model)
 
-    with mock.patch(
-        "mlflow.pyspark.ml._log_model_allowlist",
-        {
-            "pyspark.ml.regression.LinearRegressionModel",
-            "pyspark.ml.classification.OneVsRestModel",
-            "pyspark.ml.pipeline.PipelineModel",
-        },
-    ), mock.patch("mlflow.pyspark.ml._logger.warning") as mock_warning:
+    with (
+        mock.patch(
+            "mlflow.pyspark.ml._log_model_allowlist",
+            {
+                "pyspark.ml.regression.LinearRegressionModel",
+                "pyspark.ml.classification.OneVsRestModel",
+                "pyspark.ml.pipeline.PipelineModel",
+            },
+        ),
+        mock.patch("mlflow.pyspark.ml._logger.warning") as mock_warning,
+    ):
         lr = LinearRegression()
         with mlflow.start_run():
             lr_model = lr.fit(dataset_binomial)
@@ -503,7 +514,10 @@ def test_pipeline(dataset_text):
         assert run_data.tags == get_expected_class_tags(estimator)
         assert MODEL_DIR in run_data.artifacts
         loaded_model = load_model_by_run_id(run_id)
-        assert loaded_model.uid == model.uid
+        pd.testing.assert_frame_equal(
+            loaded_model.transform(dataset_text).toPandas(),
+            model.transform(dataset_text).toPandas(),
+        )
         assert run_data.artifacts == ["estimator_info.json", "model"]
 
 
@@ -909,15 +923,20 @@ def test_meta_estimator_disable_post_training_autologging(dataset_regression):
     eva = RegressionEvaluator(metricName="rmse")
     estimator = TrainValidationSplit(estimator=lr, estimatorParamMaps=lr_param_maps, evaluator=eva)
 
-    with mock.patch(
-        "mlflow.pyspark.ml._AutologgingMetricsManager.register_model"
-    ) as mock_register_model, mock.patch(
-        "mlflow.sklearn._AutologgingMetricsManager.is_metric_value_loggable"
-    ) as mock_is_metric_value_loggable, mock.patch(
-        "mlflow.pyspark.ml._AutologgingMetricsManager.log_post_training_metric"
-    ) as mock_log_post_training_metric, mock.patch(
-        "mlflow.pyspark.ml._AutologgingMetricsManager.register_prediction_input_dataset"
-    ) as mock_register_prediction_input_dataset:
+    with (
+        mock.patch(
+            "mlflow.pyspark.ml._AutologgingMetricsManager.register_model"
+        ) as mock_register_model,
+        mock.patch(
+            "mlflow.sklearn._AutologgingMetricsManager.is_metric_value_loggable"
+        ) as mock_is_metric_value_loggable,
+        mock.patch(
+            "mlflow.pyspark.ml._AutologgingMetricsManager.log_post_training_metric"
+        ) as mock_log_post_training_metric,
+        mock.patch(
+            "mlflow.pyspark.ml._AutologgingMetricsManager.register_prediction_input_dataset"
+        ) as mock_register_prediction_input_dataset,
+    ):
         with mlflow.start_run():
             model = estimator.fit(dataset_regression)
 
@@ -944,7 +963,7 @@ def test_log_post_training_metrics_configuration(dataset_iris_binomial):
     mce = MulticlassClassificationEvaluator()
     metric_name = mce.getMetricName()
 
-    # Ensure post-traning metrics autologging can be toggled on / off
+    # Ensure post-training metrics autologging can be toggled on / off
     for log_post_training_metrics in [True, False, True]:
         mlflow.pyspark.ml.autolog(log_post_training_metrics=log_post_training_metrics)
 
@@ -1212,16 +1231,16 @@ def test_spark_df_with_vector_to_array_casts_successfully(dataset_multinomial):
 
     output_df = cast_spark_df_with_vector_to_array(dataset_multinomial)
     features_col = next(filter(lambda f: f.name == "features", output_df.schema.fields))
-    assert features_col.dataType == ArrayType(
-        DoubleType(), False
-    ), "'features' column isn't of expected type array<double>"
+    assert features_col.dataType == ArrayType(DoubleType(), False), (
+        "'features' column isn't of expected type array<double>"
+    )
 
 
 def test_get_feature_cols(input_df_with_non_features, pipeline_for_feature_cols):
     pipeline_model = pipeline_for_feature_cols.fit(input_df_with_non_features)
-    assert get_feature_cols(input_df_with_non_features, pipeline_model) == {
-        "id"
-    }, "Wrong feature columns returned"
+    assert get_feature_cols(input_df_with_non_features, pipeline_model) == {"id"}, (
+        "Wrong feature columns returned"
+    )
 
 
 def test_get_feature_cols_with_indexer_and_assembler(spark_session):
@@ -1257,9 +1276,9 @@ def test_find_and_set_features_col_as_vector_if_needed(lr, dataset_binomial):
     features_col = next(
         filter(lambda f: f.name == "features", df_with_vector_features.schema.fields)
     )
-    assert isinstance(
-        features_col.dataType, VectorUDT
-    ), "'features' column wasn't cast to vector type"
+    assert isinstance(features_col.dataType, VectorUDT), (
+        "'features' column wasn't cast to vector type"
+    )
     pipeline_model.transform(df_with_vector_features)
     with pytest.raises(
         IllegalArgumentException, match="requirement failed: Column features must be of type"
@@ -1322,3 +1341,22 @@ def test_model_with_vector_input_vector_output(spark_session):
 
     test_pdf = pd.DataFrame({"features": [[1.0, 2.0], [3.0, 4.0]]})
     model.predict(test_pdf)  # ensure enforcing input / output schema passing
+
+
+def test_autolog_custom_output_col_pipeline(spark_session):
+    mlflow.pyspark.ml.autolog()
+    scaler = StandardScaler(inputCol="features", outputCol="scaled_features")
+    pipeline = Pipeline(stages=[scaler])
+    train_df = spark_session.createDataFrame(
+        [
+            (Vectors.dense([0.0]), 1.0),
+            (Vectors.dense([2.0]), 2.0),
+        ],
+        ["features", "label"],
+    )
+    with mlflow.start_run():
+        pipeline_model = pipeline.fit(train_df)
+
+    assert pipeline_model.stages[-1].getOutputCol() == "scaled_features"
+    pred_df = pipeline_model.transform(train_df)
+    assert "scaled_features" in pred_df.columns

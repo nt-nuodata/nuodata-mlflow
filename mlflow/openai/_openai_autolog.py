@@ -1,9 +1,10 @@
+import functools
 import json
 import logging
 import os
 from contextlib import contextmanager
 from copy import deepcopy
-from typing import Iterator
+from typing import Any, Iterator
 
 from packaging.version import Version
 
@@ -13,8 +14,10 @@ from mlflow.entities import RunTag, SpanType
 from mlflow.entities.span_event import SpanEvent
 from mlflow.entities.span_status import SpanStatusCode
 from mlflow.ml_package_versions import _ML_PACKAGE_VERSIONS
+from mlflow.openai.utils.chat_schema import set_span_chat_attributes
 from mlflow.tracing.constant import TraceMetadataKey
 from mlflow.tracing.trace_manager import InMemoryTraceManager
+from mlflow.tracing.utils import TraceJSONEncoder, start_client_span_or_trace
 from mlflow.tracking.context import registry as context_registry
 from mlflow.tracking.fluent import _get_experiment_id
 from mlflow.utils.autologging_utils import disable_autologging, get_autologging_config
@@ -70,15 +73,7 @@ def _set_api_key_env_var(client):
         os.environ.pop("OPENAI_API_KEY")
 
 
-class _OpenAIJsonEncoder(json.JSONEncoder):
-    def default(self, o):
-        try:
-            return super().default(o)
-        except TypeError:
-            return str(o)
-
-
-def _get_span_type(task) -> str:
+def _get_span_type(task: type) -> str:
     from openai.resources.chat.completions import Completions as ChatCompletions
     from openai.resources.completions import Completions
     from openai.resources.embeddings import Embeddings
@@ -88,7 +83,39 @@ def _get_span_type(task) -> str:
         Completions: SpanType.LLM,
         Embeddings: SpanType.EMBEDDING,
     }
+
+    try:
+        # Only available in openai>=1.40.0
+        from openai.resources.beta.chat.completions import Completions as BetaChatCompletions
+
+        span_type_mapping[BetaChatCompletions] = SpanType.CHAT_MODEL
+    except ImportError:
+        pass
+
     return span_type_mapping.get(task, SpanType.UNKNOWN)
+
+
+def _try_parse_raw_response(response: Any) -> Any:
+    """
+    As documented at https://github.com/openai/openai-python/tree/52357cff50bee57ef442e94d78a0de38b4173fc2?tab=readme-ov-file#accessing-raw-response-data-eg-headers,
+    a `LegacyAPIResponse` (https://github.com/openai/openai-python/blob/52357cff50bee57ef442e94d78a0de38b4173fc2/src/openai/_legacy_response.py#L45)
+    object is returned when the `create` method is invoked with `with_raw_response`.
+    """
+    try:
+        from openai._legacy_response import LegacyAPIResponse
+    except ImportError:
+        _logger.debug("Failed to import `LegacyAPIResponse` from `openai._legacy_response`")
+        return response
+
+    if isinstance(response, LegacyAPIResponse):
+        try:
+            # `parse` returns either a `pydantic.BaseModel` or a `openai.Stream` object
+            # depending on whether the request has a `stream` parameter set to `True`.
+            return response.parse()
+        except Exception as e:
+            _logger.debug(f"Failed to parse {response} (type: {response.__class__}): {e}")
+
+    return response
 
 
 def patched_call(original, self, *args, **kwargs):
@@ -97,18 +124,20 @@ def patched_call(original, self, *args, **kwargs):
     from openai.types.completion import Completion
 
     config = AutoLoggingConfig.init(flavor_name=mlflow.openai.FLAVOR_NAME)
-    run_id = getattr(self, "_mlflow_run_id", None)
     active_run = mlflow.active_run()
+
+    # Active run should always take precedence over the run_id stored in the model
+    run_id = active_run.info.run_id if active_run else getattr(self, "_mlflow_run_id", None)
+
     mlflow_client = mlflow.MlflowClient()
     request_id = None
 
     # If optional artifacts logging are enabled e.g. log_models, we need to create a run
-    if config.should_log_optional_artifacts() and run_id is None:
+    if config.should_log_optional_artifacts():
         # include run context tags
         resolved_tags = context_registry.resolve_tags(config.extra_tags)
         tags = _resolve_extra_tags(mlflow.openai.FLAVOR_NAME, resolved_tags)
-        if active_run:
-            run_id = active_run.info.run_id
+        if run_id is not None:
             mlflow_client.log_batch(
                 run_id=run_id,
                 tags=[RunTag(key, str(value)) for key, value in tags.items()],
@@ -121,51 +150,73 @@ def patched_call(original, self, *args, **kwargs):
             run_id = run.info.run_id
 
     if config.log_traces:
-        root_span = mlflow_client.start_trace(
-            name=self.__class__.__name__, span_type=_get_span_type(self.__class__), inputs=kwargs
+        # Record input parameters to attributes
+        attributes = {k: v for k, v in kwargs.items() if k != "messages"}
+
+        # If there is an active span, create a child span under it, otherwise create a new trace
+        span = start_client_span_or_trace(
+            mlflow_client,
+            name=self.__class__.__name__,
+            span_type=_get_span_type(self.__class__),
+            inputs=kwargs,
+            attributes=attributes,
         )
-        request_id = root_span.request_id
-        # If a new autolog run is created, associate the trace with the run
+
+        request_id = span.request_id
+        # Associate run ID to the trace manually, because if a new run is created by
+        # autologging, it is not set as the active run thus not automatically
+        # associated with the trace.
         if run_id is not None:
             tm = InMemoryTraceManager().get_instance()
             tm.set_request_metadata(request_id, TraceMetadataKey.SOURCE_RUN, run_id)
 
     # Execute the original function
     try:
-        result = original(self, *args, **kwargs)
+        raw_result = original(self, *args, **kwargs)
     except Exception as e:
         # We have to end the trace even the exception is raised
         if config.log_traces and request_id:
             try:
-                root_span.add_event(SpanEvent.from_exception(e))
-                mlflow_client.end_trace(request_id=request_id, status=SpanStatusCode.ERROR)
+                span.add_event(SpanEvent.from_exception(e))
+                mlflow_client.end_span(request_id, span.span_id, status=SpanStatusCode.ERROR)
             except Exception as inner_e:
                 _logger.warning(f"Encountered unexpected error when ending trace: {inner_e}")
         raise e
+
+    result = _try_parse_raw_response(raw_result)
 
     if isinstance(result, Stream):
         # If the output is a stream, we add a hook to store the intermediate chunks
         # and then log the outputs as a single artifact when the stream ends
         def _stream_output_logging_hook(stream: Iterator) -> Iterator:
-            chunks = []
             output = []
-            for chunk in stream:
-                if isinstance(chunk, Completion):
+            for i, chunk in enumerate(stream):
+                # `chunk.choices` can be empty: https://github.com/mlflow/mlflow/issues/13361
+                if isinstance(chunk, Completion) and chunk.choices:
                     output.append(chunk.choices[0].text or "")
-                elif isinstance(chunk, ChatCompletionChunk):
+                elif isinstance(chunk, ChatCompletionChunk) and chunk.choices:
                     output.append(chunk.choices[0].delta.content or "")
-                chunks.append(chunk)
+
+                # Record the raw chunks as events
+                span.add_event(
+                    SpanEvent(
+                        name=f"chunk_{i}",
+                        # NB: OTel event attribute only accepts dictionary with primitive types
+                        # (or list or them), not nested dict.
+                        # TODO: Define a consistent format for stream chunk across all providers
+                        attributes={
+                            chunk.__class__.__name__: json.dumps(chunk, cls=TraceJSONEncoder)
+                        },
+                    )
+                )
+
                 yield chunk
 
             try:
-                chunk_dicts = []
-                chunk_dicts = [chunk.to_dict() for chunk in chunks]
                 if config.log_traces and request_id:
-                    mlflow_client.end_trace(
-                        request_id=request_id,
-                        attributes={"events": chunk_dicts},
-                        outputs="".join(output),
-                    )
+                    outputs = "".join(output)
+                    set_span_chat_attributes(span, kwargs, outputs)
+                    mlflow_client.end_span(request_id, span.span_id, outputs=outputs)
             except Exception as e:
                 _logger.warning(f"Encountered unexpected error during openai autologging: {e}")
 
@@ -173,7 +224,8 @@ def patched_call(original, self, *args, **kwargs):
     else:
         if config.log_traces and request_id:
             try:
-                mlflow_client.end_trace(request_id=request_id, outputs=result)
+                set_span_chat_attributes(span, kwargs, result)
+                mlflow_client.end_span(request_id, span.span_id, outputs=result)
             except Exception as e:
                 _logger.warning(f"Encountered unexpected error when ending trace: {e}")
 
@@ -200,7 +252,7 @@ def patched_call(original, self, *args, **kwargs):
                 # so that the model can be logged.
                 with _set_api_key_env_var(self._client):
                     mlflow.openai.log_model(
-                        kwargs.get("model", None),
+                        kwargs.get("model"),
                         task,
                         "model",
                         input_example=input_example,
@@ -212,11 +264,72 @@ def patched_call(original, self, *args, **kwargs):
         self._mlflow_model_logged = True
 
     # Even if the model is not logged, we keep a single run per model
-    if not hasattr(self, "_mlflow_run_id"):
-        self._mlflow_run_id = run_id
+    self._mlflow_run_id = run_id
 
     # Terminate the run if it is not managed by the user
     if run_id is not None and (active_run is None or active_run.info.run_id != run_id):
         mlflow_client.set_terminated(run_id)
 
-    return result
+    return raw_result
+
+
+def patched_agent_get_chat_completion(original, self, *args, **kwargs):
+    """
+    Patch the `get_chat_completion` method of the ChatCompletion object.
+    OpenAI autolog already handles the raw completion request, but tracing
+    the swarm's method is useful to track other parameters like agent name.
+    """
+    agent = kwargs.get("agent") or args[0]
+
+    # Patch agent's functions to generate traces. Function calls only happen
+    # after the first completion is generated because of the design of
+    # function calling. Therefore, we can safely patch the tool functions here
+    # within get_chat_completion() hook.
+    # We cannot patch functions during the agent's initialization because the
+    # agent's functions can be modified after the agent is created.
+    def function_wrapper(fn):
+        if "context_variables" in fn.__code__.co_varnames:
+
+            def wrapper(*args, **kwargs):
+                # NB: Swarm uses `func.__code__.co_varnames` to inspect if the provided
+                # tool function includes 'context_variables' parameter in the signature
+                # and ingest the global context variables if so. Wrapping the function
+                # with mlflow.trace() will break this.
+                # The co_varnames is determined based on the local variables of the
+                # function, so we workaround this by declaring it here as a local variable.
+                context_variables = kwargs.get("context_variables", {})  # noqa: F841
+                return mlflow.trace(
+                    fn,
+                    name=f"{agent.name}.{fn.__name__}",
+                    span_type=SpanType.TOOL,
+                )(*args, **kwargs)
+        else:
+
+            def wrapper(*args, **kwargs):
+                return mlflow.trace(
+                    fn,
+                    name=f"{agent.name}.{fn.__name__}",
+                    span_type=SpanType.TOOL,
+                )(*args, **kwargs)
+
+        wrapped = functools.wraps(fn)(wrapper)
+        wrapped._is_mlflow_traced = True  # Marker to avoid double tracing
+        return wrapped
+
+    agent.functions = [
+        function_wrapper(fn) if not hasattr(fn, "_is_mlflow_traced") else fn
+        for fn in agent.functions
+    ]
+
+    traced_fn = mlflow.trace(
+        original, name=f"{agent.name}.get_chat_completion", span_type=SpanType.CHAIN
+    )
+    return traced_fn(self, *args, **kwargs)
+
+
+def patched_swarm_run(original, self, *args, **kwargs):
+    """
+    Patched version of `run` method of the Swarm object.
+    """
+    traced_fn = mlflow.trace(original, span_type=SpanType.AGENT)
+    return traced_fn(self, *args, **kwargs)
