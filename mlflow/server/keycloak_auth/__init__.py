@@ -5,7 +5,7 @@ import uuid
 from flask import Flask, Response, make_response, request
 from mlflow.server.keycloak_auth.config import read_auth_config
 
-from mlflow.server.keycloak_auth.constants import INGESTION_CLIENT_READ_ROLE, INSUFFICIENT_PERMISSION_BY_ADMIN, TOKEN_NOT_FOUND, TOKEN_NOT_VALID
+from mlflow.server.keycloak_auth.constants import NOVA_CLIENT_READ_ROLE, INSUFFICIENT_PERMISSION_BY_ADMIN, TOKEN_NOT_FOUND, TOKEN_NOT_VALID
 from mlflow.server import app
 from werkzeug.exceptions import Unauthorized
 import httpx
@@ -78,9 +78,9 @@ def authorize_ingestion_role(bearer_token):
 
     decoded_token = jwt.decode(token, options={"verify_signature": False})
 
-    roles = decoded_token.get("realm_access").get("roles")
+    roles = decoded_token.get("client_roles")
 
-    if INGESTION_CLIENT_READ_ROLE not in roles:
+    if NOVA_CLIENT_READ_ROLE not in roles:
         raise Unauthorized(detail = INSUFFICIENT_PERMISSION_BY_ADMIN)
 
 def create_app(app: Flask = app):
