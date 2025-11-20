@@ -3,7 +3,7 @@ import Keycloak from 'keycloak-js';
 const keycloakConfig = {
     url: 'https://identity.dev.nuodata.io/',
     realm: 'nuodata',
-    clientId: 'nuodata-auth',
+    clientId: 'nuodata-aiml-and-jupyterhub',
 };
 // Initialize Keycloak instance
 const keycloak:any = new Keycloak(keycloakConfig);
